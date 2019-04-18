@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <script src="jquery.js"></script>
+    <script src='spectrum.js'></script>
+    <link rel='stylesheet' href='spectrum.css'/>
+    <style>
+        a {line-height: 30px;}
+    </style>
+</head>
+<body style="float: left;">
+<canvas width="600" height="300" style="width:600px; height: 300px; border: 1px solid grey; float: left;" id="can"></canvas>
+<div style="float: left; margin-top: 12px; text-align: center;">
+    <a id="newbtn" href="#">[ 新建 ]</a><br/>
+    <a id="forkbtn" href="#">[ 分叉 ]</a><br/>
+    <a id="download" href="#" download="image.png">[ 下载 ]</a><br/>
+    <input type='text' id="picker"/>
+</div>
+<script>
+
+    +function () {
+        'use strict';
+        let ctx = $('#can')[0].getContext('2d');
+        $("#picker").spectrum({
+            preferredFormat: "hex",
+            color: "#f2c515",
+            flat: true,
+            showButtons: false,
+            showInput: true,
+            move: function(color) {
+                ctx.fillStyle = color.toHexString();
+            },
+        });
+        $("#download").click(function(){
+            this.href = document.getElementById("can").toDataURL('image/png');
+        });
+        function getFrameId() {
+            let h = location.hash.substr(1);
+            if (!h) {
+                location.hash = "FRAME1";
+                h = "FRAME1";
+            }
+            return h;
+        }
+
+        $.ajax({
+            url: "/bind-session",
+            method: "GET",
+            success: function(resp) {
+                console.log(resp);
+                let ws = new WebSocket(((window.location.protocol === "https:") ? "wss://" : "ws://") + window.location.host + "/ws?"+resp);
+                ws.onmessage = function(ev) {
+                    if (ev.data.startsWith("FLUSH")) {
+                        console.log(ev.data);
+                        let frame = JSON.parse(ev.data.substr(6));
+                        location.hash = frame.frameId;
+                        ctx.clearRect(0,0,600,300);
+                        for (let y = 0; y < frame.data.length; y++) {
+                            let row = frame.data[y];
+                            for (let x = 0; x < row.length; x++) {
+                                if (!row[x]) continue;
+                                ctx.fillStyle = '#'+row[x];
+                                ctx.fillRect(x*10,y*10,10,10);
+                            }
+                        }
+                        ctx.fillStyle = $("#picker").spectrum("get").toHexString();
+                    } else if (ev.data.startsWith("INC")) {
+                        let inc = ev.data.split('#');
+                        ctx.fillStyle = '#' + inc[3];
+                        ctx.fillRect(inc[1]*10, inc[2]*10, 10, 10);
+                    }
+                };
+                ws.onopen = function() {
+                    ws.send("CON#"+getFrameId());
+                    $('#can').click(function(ev) {
+                        let x = Math.floor(ev.offsetX/10);
+                        let y = Math.floor(ev.offsetY/10);
+                        ctx.fillStyle = $("#picker").spectrum("get").toHexString();
+                        ctx.fillRect(x*10,y*10,10,10);
+                        ws.send("INC#"+x+"#"+y+ctx.fillStyle);
+                    })
+
+                    $('#forkbtn').click(function(){ws.send("FRK#")});
+                    $('#newbtn').click(function(){ws.send("NEW#")});
+                    function keepAlive() {
+                        var timeout = 20000;
+                        if (ws.readyState == ws.OPEN) {
+                            ws.send('');
+                        }
+                        setTimeout(keepAlive, timeout);
+                    }
+                    keepAlive();
+                };
+            }
+        })
+    }()
+
+</script>
+</body>
+</html>
